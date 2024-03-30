@@ -9,22 +9,59 @@ jobs:
   releases-matrix:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        goos: [linux, windows, darwin]
-        goarch: [amd64, arm64]
+        platform:
+          [
+            {
+              os: "windows",
+              arch: "amd64",
+              ext: "dll",
+              cc: "x86_64-w64-mingw32-gcc",
+            },
+            { os: "windows", arch: "arm64", ext: "dll", cc: "" },
+            { os: "linux", arch: "amd64", ext: "so", cc: "" },
+            { os: "linux", arch: "arm64", ext: "so", cc: "" },
+            { os: "darwin", arch: "amd64", ext: "dylib", cc: "" },
+            { os: "darwin", arch: "arm64", ext: "dylib", cc: "" },
+          ]
     steps:
       - uses: actions/checkout@v3
       - shell: bash
         name: Set env variables
         run: |
-          c=$(git rev-parse --short HEAD); b=$(git name-rev --name-only "$c"); echo "version=$c ($b branch)" >> $GITHUB_ENV
-          echo "ext=$( if [ '${{ matrix.goos }}' = 'windows' ]; then echo 'dll'; elif [ '${{ matrix.goos }}' = 'darwin' ]; then echo 'dylib'; elif [ '${{ matrix.goos }}' = 'linux' ]; then echo 'so'; fi )" >> $GITHUB_ENV
+          c=$(git rev-parse --short HEAD)
+          b=$(git name-rev --name-only "$c")
+          echo "version=$c ($b branch)" >>$GITHUB_ENV
       - uses: wangyoucao577/go-release-action@v1.38
+        if: matrix.platform.cc == ''
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          goos: ${{ matrix.goos }}
-          goarch: ${{ matrix.goarch }}
+          goos: ${{ matrix.platform.os }}
+          goarch: ${{ matrix.platform.arch }}
           goversion: "1.20"
-          pre_command: "go build -o libr6dissect.${{ env.ext }} -buildmode=c-shared exports/exports.go"
-          extra_files: "LICENSE README.md libr6dissect.h libr6dissect.${{ env.ext }}"
+          pre_command: >
+            go build 
+              -o libr6dissect.${{ matrix.platform.ext }} 
+              -buildmode=c-shared 
+              exports/exports.go
+          extra_files: "LICENSE README.md libr6dissect.h libr6dissect.${{ matrix.platform.ext }}"
+          ldflags: "-X 'main.Version=${{ env.version }}'"
+      - uses: wangyoucao577/go-release-action@v1.38
+        if: matrix.platform.cc != ''
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          goos: ${{ matrix.platform.os }}
+          goarch: ${{ matrix.platform.arch }}
+          goversion: "1.20"
+          pre_command: >
+            apt-get update && 
+            apt-get install -y build-essential gcc-aarch64-linux-gnu mingw-w64 && 
+            export CGO_ENABLED=1 &&
+            export CC=${{ matrix.platform.cc }} &&
+            go build 
+              -o libr6dissect.${{ matrix.platform.ext }} 
+              -buildmode=c-shared 
+              exports/exports.go
+          extra_files: "LICENSE README.md libr6dissect.h libr6dissect.${{ matrix.platform.ext }}"
           ldflags: "-X 'main.Version=${{ env.version }}'"
